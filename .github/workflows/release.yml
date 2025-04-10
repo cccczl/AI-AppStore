@@ -66,19 +66,13 @@ jobs: # 作业配置
           # Build universal # 构建通用版本
           zip AppStore.zip $(find . -type f \( -wholename "./*.json" -o -wholename "./Apps/*.yml" \)) # 使用 zip 命令将符合条件的文件打包成 AppStore.zip
           universal_count=$(find ./Apps/ -name "*.yml" | wc -l) # 统计 Apps 目录下 yml 文件的数量，赋值给 universal_count 变量
-  
-          # Build arm64
-          [ -d "./Apps_arm64" ] && cp -rfu ./Apps_arm64/* ./Apps/
-          zip AppStore_arm64.zip $(find . -type f -wholename "./*.json" && find . -type f -wholename "./Apps/*.yml" -exec grep -rlPz
-          arm64_count=$(find . -type f -wholename "./Apps/*.yml" -exec grep -rlPz 'x-casaos:\s*\n\s*architectures:[\n\s\w-#]*- arm64
-          git checkout -- ./Apps && git clean -df ./Apps
 
-          # Build amd64
-          [ -d "./Apps_amd64" ] && cp -rfu ./Apps_amd64/* ./Apps/
-          zip AppStore_amd64.zip $(find . -type f -wholename "./*.json" && find . -type f -wholename "./Apps/*.yml" -exec grep -rlPz
-          amd64_count=$(find . -type f -wholename "./Apps/*.yml" -exec grep -rlPz 'x-casaos:\s*\n\s*architectures:[\n\s\w-#]*- amd64
 
-          echo "app_counts=universal($universal_count), arm64($arm64_count), amd64($amd64_count)" >> $GITHUB_OUTPUT # 将应用数量信息输出到 GITHUB_OUTPUT 环境变量，变量名为 app_counts，格式为 universal(数量)
+          # Build amd64 # 构建 amd64 版本
+          zip AppStore_amd64.zip $(find . -type f -wholename "./*.json" -o -wholename "./Apps/*.yml" -exec grep -rlPz) # 使用 zip 命令将符合条件的文件打包成 AppStore_amd64.zip
+          amd64_count=$(find . -type f -wholename "./Apps/*.yml" -exec grep -rlPz 'x-casaos:\s*\n\s*architectures:[\n\s\w-#]*- amd64' | wc -l) # 统计 amd64 版本的 yml 文件数量
+
+          echo "app_counts=universal($universal_count), amd64($amd64_count)" >> $GITHUB_OUTPUT # 将应用数量信息输出到 GITHUB_OUTPUT 环境变量，变量名为 app_counts，格式为 universal(数量)
   
       - name: Proxy get.docker.com # 步骤名称：Proxy get.docker.com（代理 get.docker.com）
         run: |
