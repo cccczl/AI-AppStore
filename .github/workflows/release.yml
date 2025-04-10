@@ -1,0 +1,89 @@
+name: Release # 工作流程名称：Release（发布）
+
+permissions: # 权限配置
+  contents: write # 允许此工作流程写入仓库内容，用于创建发布等
+
+on: # 触发条件配置
+  push: # 当有代码推送到仓库时触发
+    paths: # 监听文件路径
+      - '**.yml' # 监听所有yml文件
+      - '**.json' # 监听所有json文件
+    # tags: # 监听标签（已注释，取消注释则启用）
+    #   - 'v*' # 触发条件：当推送以 'v' 开头的标签时
+  pull_request: # 当有拉取请求时触发
+    types: [closed] # 当拉取请求关闭时触发
+    branches: # 监听分支
+      - main # 监听 main 分支
+  workflow_dispatch: # 允许手动触发工作流程
+    inputs: # 手动触发时的输入参数
+      tags: # 标签输入参数
+        description: 'Test tags' # 参数描述：测试标签
+        required: true # 参数是否必填：是
+        type: string # 参数类型：字符串
+
+jobs: # 作业配置
+  release: # 作业名称：release（发布）
+    runs-on: ubuntu-latest # 运行环境：最新版 Ubuntu
+
+    steps: # 步骤配置
+      - name: Checkout code # 步骤名称：Checkout code（检出代码）
+        uses: actions/checkout@v4 # 使用 actions/checkout@v4 动作，用于检出代码
+        with: # 动作参数配置
+            fetch-depth: 0  # 获取完整的提交历史，确保可以获取到所有的标签
+
+
+      - name: Get Commit Messages # 步骤名称：Get Commit Messages（获取提交信息）
+        id: get_commit_messages # 步骤ID：get_commit_messages，用于后续步骤引用输出
+        run: | # 运行的 Shell 脚本
+          # Get the latest tag # 获取最新标签
+          LATEST_TAG=$(git tag --sort=-creatordate | head -n 1) # 使用 git 命令获取最新标签，并赋值给 LATEST_TAG 变量
+
+          # If there is no latest tag, get only the latest commit message # 如果没有最新标签，则只获取最新的提交信息
+          if [ -z "$LATEST_TAG" ]; then # 判断 LATEST_TAG 变量是否为空
+            COMMITS=$(git log -1 --pretty=format:'- %s (%h)') # 如果为空，则获取最近一次提交的信息，格式为 '- 提交信息 (提交哈希值)'
+          else # 如果 LATEST_TAG 变量不为空
+            COMMITS=$(git log --pretty=format:'- %s (%h)' --no-merges "$LATEST_TAG"..HEAD) # 获取从最新标签到 HEAD 之间的所有提交信息，排除合并提交
+          fi # if 语句结束
+
+          # Output Multi-Line String # 输出多行字符串
+          echo "commits<<EOF" >> $GITHUB_OUTPUT # 将多行字符串输出到 GITHUB_OUTPUT 环境变量，变量名为 commits，起始标记为 EOF
+          echo "$COMMITS" >> $GITHUB_OUTPUT # 将 COMMITS 变量的内容输出到 GITHUB_OUTPUT 环境变量
+          echo "EOF" >> $GITHUB_OUTPUT # 结束标记 EOF
+
+          # Get the release date # 获取发布日期
+          RELEASE_DATE=$(date +'%Y%m%d') # 使用 date 命令获取当前日期，格式为 YYYYMMDD，并赋值给 RELEASE_DATE 变量
+          echo "release_date=$RELEASE_DATE" >> $GITHUB_OUTPUT # 将发布日期输出到 GITHUB_OUTPUT 环境变量，变量名为 release_date
+
+      - name: Delete tag and release # 步骤名称：Delete tag and release (删除标签和发布)
+        uses: dev-drprasad/delete-tag-and-release@v1.1 # 使用 dev-drprasad/delete-tag-and-release@v1.1 动作，用于删除指定标签和发布
+        with: # 动作参数配置
+          tag_name: new # 要删除的标签名称：new
+          github_token: ${{ secrets.GITHUB_TOKEN }} # GitHub Token，用于授权删除操作
+  
+      - name: Filter and Create Release # 步骤名称：Filter and Create Release（过滤和创建发布）
+        id: create_release # 步骤ID：create_release，用于后续步骤引用输出
+        run: | # 运行的 Shell 脚本
+          # Build universal # 构建通用版本
+          zip AppStore.zip $(find . -type f \( -wholename "./*.json" -o -wholename "./Apps/*.yml" \)) # 使用 zip 命令将符合条件的文件打包成 AppStore.zip
+          universal_count=$(find ./Apps/ -name "*.yml" | wc -l) # 统计 Apps 目录下 yml 文件的数量，赋值给 universal_count 变量
+  
+          echo "app_counts=universal($universal_count)" >> $GITHUB_OUTPUT # 将应用数量信息输出到 GITHUB_OUTPUT 环境变量，变量名为 app_counts，格式为 universal(数量)
+  
+      - name: Proxy get.docker.com # 步骤名称：Proxy get.docker.com（代理 get.docker.com）
+        run: |
+          wget https://get.docker.com -O get_docker.sh # 使用 wget 命令下载 get.docker.com 脚本，并保存为 get_docker.sh
+        env: # 环境变量配置
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # GitHub Token，传递给步骤使用的环境变量
+
+      - name: Upload New Release # 步骤名称：Upload New Release（上传新发布）
+        uses: softprops/action-gh-release@v2 # 使用 softprops/action-gh-release@v2 动作，用于上传发布
+        with: # 动作参数配置
+          files: | # 要上传的文件列表
+            AppStore.zip # 上传 AppStore.zip 文件
+          tag_name: new # 发布标签名称：new
+          name: "v${{ steps.get_commit_messages.outputs.release_date }}" # 发布名称，格式为 vYYYYMMDD，使用 get_commit_messages 步骤输出的 release_date 变量
+          draft: false # 是否为草稿发布：否，即正式发布
+          prerelease: false # 是否为预发布版本：否，即正式版本
+          body: "## What's Changed\n\n${{ steps.get_commit_messages.outputs.commits }}\n\n📊 **App Counts:** ${{ steps.create_release.outputs.app_counts }}" # 发布内容，包括 What's Changed 标题、提交信息（来自 get_commit_messages 步骤的输出）和应用数量统计（来自 create_release 步骤的输出）
+        env: # 环境变量配置
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # GitHub Token，传递给步骤使用的环境变量
